@@ -134,6 +134,7 @@ void loop(void)
   //int reading = analogRead(sensorPin);
   int lightReading = analogRead(A5);
   int moistureReading = analogRead(A4);
+  int tempReading = analogRead(A3);
    
   //converting reading to a voltage
   //float light = lightReading * (5.0/1023.0);
@@ -142,7 +143,7 @@ void loop(void)
   //lsb is light number and msb is moisture number
   bytes[0] = lightReading/4;
   bytes[1] = moistureReading/4;
-  
+  //bytes[2] = tempReading;
   //ble.print("AT+BLEUARTTX");
   //ble.print(lightBytes[0]);
     
