@@ -1,6 +1,7 @@
 var gpio = require('rpi-gpio');
 var firebase = require('firebase');
 var noble = require('noble');
+var PythonShell = require('python-shell');
 
 // Initialize Firebase
 var config = {
@@ -13,6 +14,9 @@ var config = {
 };
 firebase.initializeApp(config);
 
+//setInterval(function(){
+//  takePhoto();
+//}, 3600);
 
 
 var valve_pin = 15;
@@ -20,6 +24,7 @@ var plantLightThreshold = 0;
 var plantWaterThreshold = 0;
 var plantWaterHistory = ['0','0','0','0','0'];
 var historyCounter = 0;
+var numberOfWatersLeft = 20;
 
 gpio.setup(valve_pin, gpio.DIR_OUT, openValve);
 
@@ -34,12 +39,18 @@ function openValve() {
 
         var d = new Date();
         var t = d.toLocaleTimeString();
-        plantWaterHistory[historyCounter] = t;
+        plantWaterHistory[historyCounter] = d + t;
         historyCounter ++;
         if(historyCounter == 5){
             historyCounter = 0;
         }
         setValveHistory();
+        if(numberOfWatersLeft != 0){
+            numberOfWatersLeft --;
+            console.log(numberOfWatersLeft);
+            updateNumberOfWatersLeft(numberOfWatersLeft);
+        }
+        checkRefill();
 
         setTimeout(function(){
             gpio.write(valve_pin, false, function(err){
@@ -47,8 +58,17 @@ function openValve() {
                 updateValveState('Closed');
                 console.log('close valve');
             });
-        }, 1000);
+        }, 100);
      });
+}
+
+
+function checkRefill(){
+    if(numberOfWatersLeft == 0){
+        //you need to refill
+        updateRefillStatus("true");
+        console.log("REFILL");        
+    }
 }
 
 
@@ -95,6 +115,27 @@ function updateValveState(valveState){
 }
 
 
+function updateDeviceValveState(valveState){
+    firebase.database().ref().update({
+        "Device/ValveState": valveState
+    });
+}
+
+
+function updateNumberOfWatersLeft(numberOfWatersLeft){
+    firebase.database().ref().update({
+        "PlantDaddy/NumberOfWatersLeft": numberOfWatersLeft
+    });
+}
+
+
+function updateRefillStatus(refillStatus){
+    firebase.database().ref().update({
+        "PlantDaddy/RefillStatus": refillStatus
+    });
+}
+
+
 //pushes new light and moisture data to firebase
 function updateData(moistureDataFromArduino, lightDataFromArduino) {
     // Timestamp data
@@ -128,6 +169,25 @@ firebase.database().ref().child("Daisy/WaterThreshold").on("value", function(sna
 });
 
 
+firebase.database().ref().child("Device/ValveState").on("value", function(snapshot) {
+    if(snapshot.val() == "true"){
+        openValve();
+    }
+    updateDeviceValveState("false");
+}, function (errorObject) {
+    //nothing
+});
+
+
+//false means it has water
+//true means it is empty
+firebase.database().ref().child("PlantDaddy/RefillStatus").on("value", function(snapshot) {
+    if(snapshot.val() == "false"){
+        numberOfWatersLeft = 20;
+    }
+});
+
+
 //compares current moisture value to threshold
 function checkForWater(moistureData){
     if(moistureData < plantWaterThreshold){
@@ -152,7 +212,7 @@ function checkLightIntensity(lightData){
 
 //Register function to receive newly discovered devices
 noble.on('discover', function(device) {
-    if(device.address === 'f4:d9:23:8e:84:c1') {
+    if(device.address === 'ea:cc:30:97:5f:f7') {
         console.log('Found device: ' + device.address);
         //found our device, now connect to it
         //Be sure to turn off scanning before connecting
@@ -218,10 +278,12 @@ noble.on('discover', function(device) {
                     var moistureFromArduino = data[1];
                     checkForWater(moistureFromArduino);
                     checkLightIntensity(lightFromArduino);
+                    
                     console.log ("Received Light (from Gatt): " + "LSB = " + data[0]);
                     console.log ("                      Actual Light = " + lightFromArduino);
                     console.log ("Received Moisture (from Gatt): " + "LSB = " + data[1]);
-                    console.log ("                      Actual Moisture = " + moistureFromArduino);
+                    console.log ("                      Actual Moisture = " + moistureFromArduino);                    
+
                     updateData(moistureFromArduino, lightFromArduino);
                 });
 /*
@@ -247,3 +309,10 @@ noble.on('discover', function(device) {
     }      //end of if (device.address...
 });     //end of noble.on
 
+
+function takePhoto(){
+  PythonShell.run('camera.py', function (err) {
+    if (err) throw err;
+    console.log('finished');
+  });
+}
